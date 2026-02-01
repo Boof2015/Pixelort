@@ -1,11 +1,3 @@
-"""
-PIXELORT by Akascape
-A pixel sorting application
-
-Author: Akash Bora
-License: MIT Copyright 2023
-"""
-
 import tkinter
 import customtkinter
 from tkdial import Dial
@@ -359,12 +351,34 @@ class App(CTk):
             self.previous = self.file
 
             try:
+                # Open image to check validity first
                 Image.open(self.file)
             except UnidentifiedImageError:
                 CTkMessagebox(self, title="Error Importing", message="Not a valid image file!", icon="cancel")
                 return
 
             self.img = Image.open(self.file)   
+            
+            # --- FIX 1: RESIZE LARGE IMAGES ---
+            # Resize images larger than 2000px on the longest side to prevent memory crashes
+            MAX_SIZE = 2000
+            if self.img.width > MAX_SIZE or self.img.height > MAX_SIZE:
+                self.img.thumbnail((MAX_SIZE, MAX_SIZE), Image.LANCZOS)
+                # Optional: Notify user
+                # CTkMessagebox(self, title="Resized", message="Image was too large and has been resized to prevent crashing.", icon="info")
+
+            # --- FIX 2: HANDLE ALPHA FOR LONGER TRAILS ---
+            # We do NOT convert to white background anymore.
+            # We keep the image as RGBA (or whatever mode it is).
+            # The trick to get the "Full Trail" will happen in the 'process' function
+            # by overriding the mask used for sorting.
+            
+            # If image is Palette mode (P), convert to RGBA to preserve transparency handling
+            if self.img.mode == "P":
+                self.img = self.img.convert("RGBA")
+            elif self.img.mode == "LA":
+                self.img = self.img.convert("RGBA")
+
             self.image = customtkinter.CTkImage(self.img)
             self.image_frame.configure(text="", image=self.image)
             self.image.configure(size=(self.image_frame.winfo_reqwidth(),self.image_frame.winfo_reqheight()*(self.img.size[1]/self.img.size[0])))
@@ -464,10 +478,23 @@ class App(CTk):
             self.chlength.set(5)
         try:
             self.update()
+            
+            # --- FIX 2 LOGIC: FORCE FULL SORT ON ALPHA IMAGES ---
+            # Determine which mask to use. 
+            # If the image is RGBA and no manual mask is provided, 
+            # we generate a Full White mask to allow pixels to trail into the transparent background.
+            # This preserves the Alpha channel (transparency) in the output, 
+            # but lets the sorting logic "see" the transparent area as a place to move pixels.
+            sort_mask = self.mask
+            
+            if self.img.mode == "RGBA" and not self.mask:
+                # Create a full white mask (all 255s) meaning "Sort everywhere"
+                sort_mask = Image.new("L", self.img.size, 255)
+
             self.sorted_image = pixelsort(self.img,
                                           randomness=100-self.random.get(),
                                           clength=self.chlength.get(),
-                                          mask_image=self.mask,
+                                          mask_image=sort_mask,
                                           sorting_function=self.sort_func,
                                           interval_function=self.interval_mode,
                                           interval_image=self.img_r,
